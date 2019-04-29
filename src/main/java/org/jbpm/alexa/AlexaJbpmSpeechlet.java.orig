@@ -1,0 +1,246 @@
+package org.jbpm.alexa;
+
+import java.util.Map;
+
+import javax.enterprise.context.ApplicationScoped;
+import javax.inject.Inject;
+
+import com.amazon.speech.slu.Intent;
+import com.amazon.speech.slu.Slot;
+import com.amazon.speech.speechlet.IntentRequest;
+import com.amazon.speech.speechlet.LaunchRequest;
+import com.amazon.speech.speechlet.Session;
+import com.amazon.speech.speechlet.SessionEndedRequest;
+import com.amazon.speech.speechlet.SessionStartedRequest;
+import com.amazon.speech.speechlet.Speechlet;
+import com.amazon.speech.speechlet.SpeechletException;
+import com.amazon.speech.speechlet.SpeechletResponse;
+import com.amazon.speech.ui.PlainTextOutputSpeech;
+import com.amazon.speech.ui.Reprompt;
+import com.amazon.speech.ui.SimpleCard;
+
+import org.jbpm.alexa.client.rest.KieServerClient;
+import org.jbpm.alexa.client.rest.KieServerClient.TaskCommand;
+import org.jbpm.alexa.client.rest.UnexpectedKieServerResponseException;
+import org.jbpm.alexa.speech.GenericOutputSpeechFactory;
+import org.jbpm.alexa.speech.KieServerErrorOutputSpeechFactory;
+import org.jbpm.alexa.speech.OutputSpeechFactory;
+import org.jbpm.alexa.speech.TaskInstanceOutputSpeechFactory;
+import org.jbpm.alexa.speech.TaskSummaryListOutputSpeechFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Alexa {@link Speechlet} which implements the interaction patterns for our
+ * Alexa jBPM skill.
+ * 
+ * @author <a href="mailto:duncan.doyle@redhat.com">Duncan Doyle</a>
+ *
+ */
+@ApplicationScoped
+public class AlexaJbpmSpeechlet implements Speechlet {
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(AlexaJbpmSpeechlet.class);
+
+	//@Inject
+	//private Environment environment;
+
+	@Inject
+	private KieServerClient kieServerClient;
+
+	private static final String TASK_NUMBER_SLOT = "TaskNumber";
+	
+	private static final String TASK_COMMAND_SLOT = "Command";
+
+	@Override
+	public void onSessionStarted(SessionStartedRequest request, Session session) throws SpeechletException {
+		LOGGER.info("onSessionStarted requestId={}, sessionId={}", request.getRequestId(), session.getSessionId());
+		// Any additional initialization logic here.
+	}
+
+	@Override
+	public SpeechletResponse onLaunch(LaunchRequest request, Session session) throws SpeechletException {
+		LOGGER.info("onLaunch requestId={}, sessionId={}", request.getRequestId(), session.getSessionId());
+		return getWelcomeResponse();
+	}
+
+	@Override
+	public SpeechletResponse onIntent(IntentRequest request, Session session) throws SpeechletException {
+		LOGGER.info("onIntent requestId={}, sessionId={}", request.getRequestId(), session.getSessionId());
+
+		Intent intent = request.getIntent();
+		String intentName = (intent != null) ? intent.getName() : null;
+
+		switch (intentName) {
+		case "GetTasks":
+			LOGGER.debug("GetTasks intent received.");
+			return getGetTasksResponse();
+		case "GetTaskInfo":
+			LOGGER.debug("GetTaskInfo intent received.");
+			return getGetTaskInfoResponse(intent);
+		case "ProcessTask":
+			LOGGER.debug("ProcessTask intent received.");
+			return getProcessTaskResponse(intent);
+		case "AMAZON.HelpIntent":
+			LOGGER.debug("HelpIntent");
+			return getHelpResponse();
+		default:
+			throw new SpeechletException("Invalid Intent.");
+		}
+
+	}
+
+	@Override
+	public void onSessionEnded(SessionEndedRequest request, Session session) throws SpeechletException {
+		LOGGER.info("onSessionEnded requestId={}, sessionId={}", request.getRequestId(), session.getSessionId());
+		// any cleanup logic goes here
+	}
+
+	/**
+	 * Creates and returns a {@code SpeechletResponse} with a welcome message.
+	 *
+	 * @return SpeechletResponse spoken and visual response for the given intent
+	 */
+	private SpeechletResponse getWelcomeResponse() {
+
+		String speechText = "Welcome to the Alexa jBPM skill. You can say: get my tasks";
+
+		// Create the Simple card content.
+		// Card is displayed in the application.
+		SimpleCard card = new SimpleCard();
+		card.setTitle("Welcome");
+		card.setContent(speechText);
+
+		// Create the plain text output.
+		PlainTextOutputSpeech speech = new PlainTextOutputSpeech();
+		speech.setText(speechText);
+
+		// Create reprompt
+		// TODO: Reprompt seems to be a prompt that is resend when the session
+		// is kept open (like in an AskResponse).
+		Reprompt reprompt = new Reprompt();
+		reprompt.setOutputSpeech(speech);
+
+		return SpeechletResponse.newAskResponse(speech, reprompt, card);
+	}
+
+	/**
+	 * Creates a {@code SpeechletResponse} for the <code>GetTasks</code>
+	 *
+	 * @return SpeechletResponse spoken and visual response for the given intent
+	 */
+	private SpeechletResponse getGetTasksResponse() {
+		LOGGER.debug("Building GetTasks response.");
+		OutputSpeechFactory<PlainTextOutputSpeech> osFactory;
+		try {
+			osFactory = new TaskSummaryListOutputSpeechFactory(kieServerClient.getTasks());
+		} catch (UnexpectedKieServerResponseException e) {
+			osFactory = new KieServerErrorOutputSpeechFactory(e);
+		}
+
+		// Create the Simple card content.
+		SimpleCard card = new SimpleCard();
+		card.setTitle("GetTasks");
+		card.setContent(osFactory.getSpeechText());
+
+		return SpeechletResponse.newTellResponse(osFactory.getOutputSpeech(), card);
+	}
+
+	/**
+	 * Creates a {@code SpeechletResponse} for the <code>GetTaskInfo</code>.
+	 *
+	 * @return SpeechletResponse spoken and visual response for the given intent
+	 */
+	private SpeechletResponse getGetTaskInfoResponse(Intent intent) {
+		LOGGER.debug("Building GetTaskInfo response.");
+
+		OutputSpeechFactory<PlainTextOutputSpeech> osFactory = null;
+		
+		Map<String, Slot> slots = intent.getSlots();
+		Slot taskNumberSlot = slots.get(TASK_NUMBER_SLOT);
+		
+		if (taskNumberSlot != null) {
+			try {
+				Long taskNumber = new Long(taskNumberSlot.getValue());
+				osFactory = new TaskInstanceOutputSpeechFactory(kieServerClient.getTasksInfo(taskNumber));
+			} catch (UnexpectedKieServerResponseException e) {
+				osFactory = new KieServerErrorOutputSpeechFactory(e);
+			}
+		} else {
+			// We can't do much without a task number, so we need to provide
+			// this output.
+			// TODO: we might improve this by asking for the number again.
+			osFactory = new GenericOutputSpeechFactory("Can't retrieve task info. I didn't hear a task number.");
+		}
+
+		// Create the Simple card content.
+		SimpleCard card = new SimpleCard();
+		card.setTitle("GetTasksInfo");
+		card.setContent(osFactory.getSpeechText());
+
+		return SpeechletResponse.newTellResponse(osFactory.getOutputSpeech(), card);
+	}
+
+	/**
+	 * Creates a {@code SpeechletResponse} for the <code>GetTaskInfo</code>.
+	 *
+	 * @return SpeechletResponse spoken and visual response for the given intent
+	 */
+	private SpeechletResponse getProcessTaskResponse(Intent intent) {
+		LOGGER.debug("Processing task.");
+
+		OutputSpeechFactory<PlainTextOutputSpeech> osFactory = null;
+		
+		Map<String, Slot> slots = intent.getSlots();
+		Slot taskNumberSlot = slots.get(TASK_NUMBER_SLOT);
+		Slot taskCommandSlot = slots.get(TASK_COMMAND_SLOT);
+		
+		if (taskNumberSlot != null && taskCommandSlot != null) {
+			try {
+				Long taskNumber = new Long(taskNumberSlot.getValue());
+				KieServerClient.TaskCommand command = TaskCommand.valueOf(taskCommandSlot.getValue().toUpperCase());
+				//osFactory = new TaskInstanceOutputSpeechFactory(kieServerClient.getTasksInfo(taskNumber));
+				kieServerClient.processTask(taskNumber,command);
+				osFactory = new GenericOutputSpeechFactory("Task with i.d. " + taskNumber + " successfully " + command.getSpeechText() + ".");
+			} catch (UnexpectedKieServerResponseException e) {
+				osFactory = new KieServerErrorOutputSpeechFactory(e);
+			}
+		} else {
+			// We can't do much without a task number and/or command, so we need to provide
+			// this output.
+			// TODO: we might improve this by asking for the number again.
+			osFactory = new GenericOutputSpeechFactory("Can't process the task. I didn't hear a task number or command.");
+		}
+
+		// Create the Simple card content.
+		SimpleCard card = new SimpleCard();
+		card.setTitle("ProcessTask");
+		card.setContent(osFactory.getSpeechText());
+
+		return SpeechletResponse.newTellResponse(osFactory.getOutputSpeech(), card);
+	}
+
+	/**
+	 * Creates a {@code SpeechletResponse} for the help intent.
+	 *
+	 * @return SpeechletResponse spoken and visual response for the given intent
+	 */
+	private SpeechletResponse getHelpResponse() {
+		String speechText = "You can say hello to me!";
+
+		// Create the Simple card content.
+		SimpleCard card = new SimpleCard();
+		card.setTitle("HelloWorld");
+		card.setContent(speechText);
+
+		// Create the plain text output.
+		PlainTextOutputSpeech speech = new PlainTextOutputSpeech();
+		speech.setText(speechText);
+
+		// Create reprompt
+		Reprompt reprompt = new Reprompt();
+		reprompt.setOutputSpeech(speech);
+
+		return SpeechletResponse.newAskResponse(speech, reprompt, card);
+	}
+}

@@ -1,0 +1,10 @@
+.classpath
+.project
+.settings/
+/bin/
+/target/
+.vscode
+.mvn
+mvnw*
+*.sh
+src/main/lib/

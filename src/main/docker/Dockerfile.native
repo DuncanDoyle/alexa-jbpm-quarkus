@@ -1,0 +1,31 @@
+####
+# This Dockerfile is used in order to build a container that runs the Quarkus application in native (no JVM) mode
+#
+# Before building the docker image run:
+#
+# mvn package -Pnative -Dnative-image.docker-build=true
+#
+# Then, build the image with:
+#
+# docker build -f src/main/docker/Dockerfile.native -t quarkus/alexa-jbpm-quarkus-2 .
+#
+# Then run the container using:
+#
+# docker run -i --rm -p 8080:8080 quarkus/alexa-jbpm-quarkus-2
+#
+###
+FROM registry.fedoraproject.org/fedora-minimal
+
+ENV javax.net.ssl.trustStore /cacerts
+
+WORKDIR /work/
+COPY target/*-runner /work/application
+COPY src/main/lib/linux/libsunec.so /work/libsunec.so
+COPY src/main/lib/linux/cacerts /work/cacerts
+COPY src/main/lib/linux/keystore.jks /work/keystore.jks
+#RUN dnf install zip
+#RUN zip -j function.zip libsunec.so
+RUN chmod 775 /work
+EXPOSE 8080
+EXPOSE 8443
+CMD ["./application", "-Dquarkus.http.host=0.0.0.0", "-Djavax.net.ssl.trustStore=/work/cacerts", "-Djavax.net.ssl.trustAnchors=/work/cacerts", "-Dquarkus.http.ssl.certificate.key-store-file=/work/keystore.jks" ]
