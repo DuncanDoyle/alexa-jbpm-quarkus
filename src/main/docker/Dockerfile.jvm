@@ -15,7 +15,8 @@
 #
 ###
 FROM fabric8/java-jboss-openjdk8-jdk
-ENV JAVA_OPTIONS=-Dquarkus.http.host=0.0.0.0
+ENV JAVA_OPTIONS="-Dquarkus.http.host=0.0.0.0 -Dquarkus.http.ssl.certificate.key-store-file=/deployments/keystore.jks"
+COPY src/main/lib/linux/keystore.jks /deployments/keystore.jks
 COPY target/lib/* /deployments/lib/
 COPY target/*-runner.jar /deployments/app.jar
 ENTRYPOINT [ "/deployments/run-java.sh" ]
