@@ -19,4 +19,6 @@ ENV JAVA_OPTIONS="-Dquarkus.http.host=0.0.0.0 -Dquarkus.http.ssl.certificate.key
 COPY src/main/lib/linux/keystore.jks /deployments/keystore.jks
 COPY target/lib/* /deployments/lib/
 COPY target/*-runner.jar /deployments/app.jar
+EXPOSE 8080
+EXPOSE 8443
 ENTRYPOINT [ "/deployments/run-java.sh" ]
